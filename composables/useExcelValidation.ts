@@ -91,7 +91,7 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
         if (extraHeaders.length > 0) {
 
             // showWarningMessage(`Additional columns are present in the file: ${extraHeaders.join(",")}. These columns will be ignored.`);
-            console.log(`Additional columns are present in the file: ${extraHeaders.join(",")}. These columns will be ignored.`)
+            console.log(`Additional columns are present in the file: ${extraHeaders.join(",")}. These columns will be ignored.`);
 
         }
 

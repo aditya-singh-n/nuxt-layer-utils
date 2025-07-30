@@ -1,5 +1,5 @@
 {
-  "name": "my-nuxt-layer",
+  "name": "nuxt-layer-utils",
   "type": "module",
   "version": "0.0.1",
   "main": "./nuxt.config.ts",
@@ -9,16 +9,18 @@
     "build": "nuxt build .playground",
     "generate": "nuxt generate .playground",
     "preview": "nuxt preview .playground",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "nuxi typecheck .playground"
   },
   "devDependencies": {
-    "@nuxt/eslint": "latest",
+    "@nuxt/eslint": "^1.7.1",
     "eslint": "^9.32.0",
     "nuxt": "^4.0.1",
     "typescript": "^5.8.3",
-    "vue": "latest"
-  },
-  "dependencies": {
+    "vite-plugin-eslint2": "^5.0.4",
+    "vue": "latest",
     "xlsx": "^0.18.5"
-  }
+  },
+  "dependencies": {}
 }
