@@ -118,17 +118,21 @@ export interface ExcelValidationSchema {
 export interface ExcelValidationSchemaOption {
     /** Whether the field is required. */
     required?: boolean;
+
     /** The expected data type. */
     type: ExcelCellDataType;
+
     /** Built-in validators. */
     validators?: {
         isEmail?: boolean;
-        isMobileNo?: boolean;
-        isEmployeeNo?: boolean;
+        isMobileNumber?: boolean;
+        isEmployeeNumber?: boolean;
     };
+
     /** List of accepted values. */
     acceptedValues?: (string | number)[];
-    /** Custom validator function. Should return true if valid, or an ExcelCellValidationError if invalid. */
+
+    /** Custom validator function. Should return true if valid, or an ExcelCellValidationError object if invalid. */
     customValidator?: (value: any, rowData?: Record<string, any>) => ExcelCellValidationError | true;
 }
 
@@ -154,22 +158,22 @@ export interface ExcelValidationComposable {
 
     /**
      * Validates that Excel headers match the expected schema.
-     * @param excelSchema - The validation schema containing expected column names
+     * @param schema - The validation schema containing expected column names
      * @param excelHeader - Array of header strings from the Excel file
      * @returns boolean - True if all required headers are present, false if any are missing
      */
-    validateHeader: (excelSchema: ExcelValidationSchema, excelHeader: string[]) => boolean;
+    validateHeader: (schema: ExcelValidationSchema, excelHeader: string[]) => boolean;
 
     /**
      * Validates Excel data against a schema and unique constraints.
      * @param data - Array of data objects to validate
-     * @param validationSchema - Schema defining validation rules for each column
+     * @param schema - Schema defining validation rules for each column
      * @param unique - Array of column combinations that must be unique across rows
      * @returns Promise<{errors: ExcelCellValidationError[], processedData: Record<string, any>[]}> - Object containing validation errors and processed data
      */
     validateData: (
         data: Record<string, any>[],
-        validationSchema: ExcelValidationSchema,
+        schema: ExcelValidationSchema,
         unique?: ExcelUniqueConstraint
     ) => Promise<{ errors: ExcelCellValidationError[], processedData: Record<string, any>[] }>;
 
@@ -187,4 +191,17 @@ export interface ExcelValidationComposable {
         schema: ExcelValidationSchema,
         unique?: ExcelUniqueConstraint
     ) => Promise<{ rawData: Record<string, any>[], processedData: Record<string, any>[], errors: ExcelCellValidationError[] }>;
+}
+
+/**
+ * Custom error class for validation cancellation.
+ */
+export class ValidationCancellationError extends Error {
+
+    constructor(public errors: ExcelCellValidationError[]) {
+
+        super("Validation stopped. The process was interrupted before completion.");
+
+    }
+
 }

@@ -1,5 +1,15 @@
 import * as XLSX from "xlsx";
-import { ExcelCellErrorType, type ExcelCellValidationError, type ExcelUniqueConstraint, type ExcelValidationComposable, type ExcelValidationSchema } from "../types/excel";
+import {
+    ExcelCellErrorType, ValidationCancellationError,
+    type ExcelCellValidationError, type ExcelUniqueConstraint, type ExcelValidationComposable, type ExcelValidationSchema,
+} from "../types/excel";
+
+/**
+ * Constant for row number offset.
+ * Excel row numbers start from 1, but array indices start from 0.
+ * Since the first row is the header, we add 2 to get the correct row number.
+ */
+const ROW_NUMBER_OFFSET = 2;
 
 /**
  * Composable for validating Excel data and tracking validation progress.
@@ -12,28 +22,66 @@ import { ExcelCellErrorType, type ExcelCellValidationError, type ExcelUniqueCons
  * @returns {ExcelValidationComposable} Object containing validation functions and progress tracker
  * @example
  * ```typescript
- * const { validateHeader, validateData, validationProgress, validateExcelFile } = useExcelValidation();
+ * const { validateHeader, validateData, validateExcelFile, validationProgress, isValidationCancelled, cancelValidation } = useExcelValidation();
  *
- * // Validate headers
- * const isValid = validateHeader(schema, headers);
+ * // Define validation schema
+ * const schema: ExcelValidationSchema = {
+ *  name: {
+ *     type: "string",
+ *     required: true,
+ *   },
+ *  department: {
+ *     type: "string",
+ *     required: true,
+ *   },
+ *   email: {
+ *     type: "string",
+ *     required: true,
+ *     validators: { isEmail: true }
+ *   },
+ *   age: {
+ *     type: "number",
+ *     required: false
+ *   }
+ * };
  *
- * // Validate data with progress tracking
- * const errors = await validateData(data, schema, uniqueConstraints);
+ * // Define unique constraints
+ * const uniqueConstraints: ExcelUniqueConstraint = [["email"], ["name", "department"]];
  *
- * // Validate complete file
- * const { data, errors } = await validateExcelFile(fileData, schema, uniqueConstraints);
+ * // Validate Excel file headers against the schema
+ * const isValid = validateHeader(schema, excelHeaders);
+ *
+ * // Validate Excel data rows with progress tracking and return processed data
+ * const { errors, processedData } = await validateData(data, schema, uniqueConstraints);
+ * // errors: Array of validation errors found during processing
+ * // processedData: Cleaned data with trimmed strings and standardized null values
+ *
+ * // Validate complete Excel file including headers, data, and unique constraints
+ * const { rawData, processedData, errors } = await validateExcelFile(fileData, schema, uniqueConstraints);
+ * // rawData: Original data from Excel file without any processing
+ * // processedData: Cleaned data with trimmed strings and standardized null values and it consists only of the keys provided in the schema.
+ * // errors: Array of validation errors found during processing
+ *
+ * // Handle validation cancellation
+ * try {
+ *   const result = await validateExcelFile(fileData, schema, uniqueConstraints);
+ * } catch (error) {
+ *   if (error instanceof ValidationCancellationError) {
+ *     console.log("Partial errors:", error.errors);
+ *   }
+ * }
  * ```
  */
 export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationComposable => {
 
     /**
-      * Reactive reference tracking validation progress (0-100).
-      *
-      * Progress computation:
-      * - Total steps = data rows + unique constraint sets.
-      * - Progress increments by 1 for each processed row and each uniqueness check.
-      * - Formula: Math.round((completedSteps / totalSteps) * 100)
-      */
+     * Reactive reference tracking validation progress (0-100).
+     *
+     * Progress computation:
+     * - Total steps = data rows + unique constraint sets.
+     * - Progress increments by 1 for each processed row and each uniqueness check.
+     * - Formula: Math.round((completedSteps / totalSteps) * 100)
+     */
     const validationProgress = ref(0);
 
     /**
@@ -45,10 +93,10 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
     const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
     // Employee number validation (7-9 digits)
-    const isEmployeeNo = (value: string | number): boolean => /^\d{7,9}$/.test(String(value));
+    const isEmployeeNumber = (value: string | number): boolean => /^\d{7,9}$/.test(String(value));
 
     // Mobile number validation using regex (handles +91, 0 prefix, and trims spaces)
-    const isMobileNo = (value: string | number): boolean => /^(?:\+91|0)?\s*\d{10}$/.test(String(value).replace(/\s+/g, ""));
+    const isMobileNumber = (value: string | number): boolean => /^(?:\+91|0)?\s*\d{10}$/.test(String(value).replace(/\s+/g, ""));
 
     // TODO: Add a new type: `isBusNumber` and need to test this.
     // Bus number validation (2 letters, 1-2 numbers, 1-2 letters, 4 numbers)
@@ -77,9 +125,11 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
 
         if (missingHeaders.length > 0) {
 
-            console.log("Missing columns:", missingHeaders.join(","));
-            console.log("Expected:", expectedHeaders.join(","));
-            console.log("Found:", excelHeaders.join(","));
+            console.group("%c[Excel Validation] Missing Columns Detected", "color: #b71c1c; font-weight: bold;");
+            console.log("%cMissing Columns: %c%s", "color: #b71c1c; font-weight: bold;", "color: #d84315;", missingHeaders.join(", "));
+            console.log("%cExpected Headers: %c%s", "color: #1565c0; font-weight: bold;", "color: #1976d2;", expectedHeaders.join(", "));
+            console.log("%cFound Headers: %c%s", "color: #2e7d32; font-weight: bold;", "color: #388e3c;", excelHeaders.join(", "));
+            console.groupEnd();
 
             return false;
 
@@ -119,6 +169,15 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
         // Helper function to calculate progress percentage
         const getProgress = (completed: number, total: number = totalSteps): number => Math.round((completed / total) * 100);
 
+        // Helper function to update progress and allow UI updates
+        const updateProgress = async (): Promise<void> => {
+
+            completedSteps++;
+            validationProgress.value = getProgress(completedSteps);
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+        };
+
         let completedSteps = 0;
 
         // Use Map to track unique values and their row numbers
@@ -142,7 +201,7 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
             // Check for cancellation before processing each row
             if (isValidationCancelled.value) {
 
-                throw new Error("Validation stopped. The process was interrupted before completion.");
+                throw new ValidationCancellationError(errors);
 
             }
 
@@ -160,8 +219,8 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
                 // Store processed value in processedRow
                 processedRow[column] = value;
 
-                // rowNumber addition of 2 because rowIndex starts from 0 and the first row is the header.
-                const rowNumber = rowIndex + 2;
+                // rowNumber addition of ROW_NUMBER_OFFSET because rowIndex starts from 0 and the first row is the header.
+                const rowNumber = rowIndex + ROW_NUMBER_OFFSET;
 
                 // Step 1: Required field validation - Check if required fields have values
                 if (rules.required && (value === null || value === "" || value === undefined)) {
@@ -200,13 +259,13 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
 
                     }
 
-                    if (rules.validators.isMobileNo && (typeof value === "string" || typeof value === "number") && !isMobileNo(value)) {
+                    if (rules.validators.isMobileNumber && (typeof value === "string" || typeof value === "number") && !isMobileNumber(value)) {
 
                         errors.push({ row: rowNumber, column, message: "Invalid mobile number", errorType: ExcelCellErrorType.MOBILE_RULE });
 
                     }
 
-                    if (rules.validators.isEmployeeNo && (typeof value === "string" || typeof value === "number") && !isEmployeeNo(value)) {
+                    if (rules.validators.isEmployeeNumber && (typeof value === "string" || typeof value === "number") && !isEmployeeNumber(value)) {
 
                         errors.push({ row: rowNumber, column, message: "Invalid employee number", errorType: ExcelCellErrorType.EMPLOYEE_RULE });
 
@@ -256,7 +315,7 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
 
                 }).join("-");
 
-                const rowNumber = rowIndex + 2;
+                const rowNumber = rowIndex + ROW_NUMBER_OFFSET;
 
                 const valueMap = uniqueValues[key];
 
@@ -276,12 +335,7 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
 
             });
 
-            completedSteps++;
-            // Update progress after each row
-            validationProgress.value = getProgress(completedSteps);
-
-            // Let UI update
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await updateProgress();
 
         }
 
@@ -291,7 +345,7 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
             // Check for cancellation before processing each uniqueness constraint
             if (isValidationCancelled.value) {
 
-                throw new Error("Validation stopped. The process was interrupted before completion.");
+                throw new ValidationCancellationError(errors);
 
             }
 
@@ -313,12 +367,9 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
 
             });
 
-            completedSteps++;
-            // Update progress after each uniqueness check
-            validationProgress.value = getProgress(completedSteps);
+            // TODO: (Least Priority) If the progress bar seems to be slow at the end for large datasets, consider the data.length * unique.length for progress value.
 
-            // Let UI update
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await updateProgress();
 
         }
 
@@ -346,6 +397,9 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
 
         }
 
+        // TODO: Need to discuss with mouli about the date formatting using this property while converting from excel to json { raw: false, dateNF: "mm-dd-yyyy" }
+        // Note: When an Excel cell contains a select option with multiple background colors, its value will be converted to a string during parsing.
+        // Additionally, if users are tagged in a Lark sheet cell, the cell value will be converted to an empty string—even if the tag appears to contain text.
         const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[workbook.SheetNames[0]]);
 
         const excelHeader = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 })[0] as string[];
@@ -366,6 +420,8 @@ export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationCo
 
         const { errors, processedData } = await validateData(jsonData, schema, unique);
 
+        // processedData contains cleaned data with trimmed strings and standardized null values.
+        // It consists only of the keys provided in the schema.
         return { rawData: jsonData, processedData, errors };
 
     };
