@@ -72,7 +72,7 @@ const ROW_NUMBER_OFFSET = 2;
  * }
  * ```
  */
-export const useExcelValidation = (_cleanup: boolean = false): ExcelValidationComposable => {
+export const useExcelValidation = (): ExcelValidationComposable => {
 
     /**
      * Reactive reference tracking validation progress (0-100).
